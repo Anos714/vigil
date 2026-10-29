@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js build output
+.next/
+out/
+build/
+
+# Local runtime data
+.data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Environment files (keep examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Go build/test artifacts
+backend/vigil
+backend/vigil-worker
+backend/vigil-notifier
+backend/tmp/
+backend/coverage.out
+
+# TypeScript / tooling
+*.tsbuildinfo
+*.log
+*.tmp
+
+# OS / editor files
+.DS_Store
+.idea/
+.vscode/
