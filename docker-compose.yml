@@ -1,0 +1,144 @@
+name: vigil
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: vigil
+      POSTGRES_USER: vigil
+      POSTGRES_PASSWORD: vigil
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vigil -d vigil"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      VIGIL_ADDR: ":8080"
+      VIGIL_VERSION: "0.2.0"
+      VIGIL_LOG_LEVEL: "${VIGIL_LOG_LEVEL:-info}"
+      DATABASE_URL: "postgres://vigil:vigil@postgres:5432/vigil?sslmode=disable"
+      REDIS_URL: "redis://redis:6379/0"
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  worker:
+    build:
+      context: ./backend
+    command: ["/usr/local/bin/vigil-worker"]
+    environment:
+      DATABASE_URL: "postgres://vigil:vigil@postgres:5432/vigil?sslmode=disable"
+      REDIS_URL: "redis://redis:6379/0"
+      VIGIL_LOG_LEVEL: "${VIGIL_LOG_LEVEL:-info}"
+      VIGIL_WORKER_HEALTH_ADDR: ":8081"
+      VIGIL_WORKER_CONCURRENCY: "4"
+      VIGIL_WORKER_TICK: "2s"
+      VIGIL_WORKER_USER_AGENT: "VigilProbe/0.1 (+self-hosted)"
+      ALERT_EMAIL_ENABLED: "${ALERT_EMAIL_ENABLED:-false}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  notifier:
+    build:
+      context: ./backend
+    command: ["/usr/local/bin/vigil-notifier"]
+    environment:
+      DATABASE_URL: "postgres://vigil:vigil@postgres:5432/vigil?sslmode=disable"
+      REDIS_URL: "redis://redis:6379/0"
+      VIGIL_LOG_LEVEL: "${VIGIL_LOG_LEVEL:-info}"
+      VIGIL_NOTIFIER_HEALTH_ADDR: ":8082"
+      VIGIL_NOTIFIER_CONCURRENCY: "4"
+      ALERT_EMAIL_ENABLED: "${ALERT_EMAIL_ENABLED:-false}"
+      BREVO_API_KEY: "${BREVO_API_KEY:-}"
+      BREVO_API_URL: "${BREVO_API_URL:-https://api.brevo.com/v3/smtp/email}"
+      ALERT_FROM_EMAIL: "${ALERT_FROM_EMAIL:-}"
+      ALERT_FROM_NAME: "${ALERT_FROM_NAME:-Vigil}"
+      ALERT_REPLY_TO: "${ALERT_REPLY_TO:-}"
+      ALERT_TO_EMAIL: "${ALERT_TO_EMAIL:-}"
+      VIGIL_APP_URL: "${VIGIL_APP_URL:-http://localhost:3000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+        NEXT_PUBLIC_API_URL: "http://localhost:8080"
+    environment:
+      BETTER_AUTH_URL: "http://localhost:3000"
+      NEXT_PUBLIC_API_URL: "http://localhost:8080"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:-vigil-local-preview-secret-change-me}"
+      AUTH_REQUIRED: "false"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    volumes:
+      - authdata:/app/.data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  pgdata:
+  redisdata:
+  authdata:
